@@ -3,7 +3,8 @@
 Ask questions about a database in plain English. An LLM-based agent writes the SQL, checks that it is safe,
 runs it, and shows the result as a table, a chart and a short explanation.
 
-**Live demo:** _paste your Streamlit link here_
+**Live demo:** https://text2sql-agent.streamlit.app/
+**Code:** https://github.com/shivrajamale/text2sql-agent
 
 > Minor Project (23CSA391A), Amrita Vishwa Vidyapeetham (AHEAD Online)  
 > Author: Shivraj Parmeshwar Amale
