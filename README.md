@@ -3,7 +3,7 @@
 Ask questions about a database in plain English. An LLM-based agent writes the SQL, checks that it is safe,
 runs it, and shows the result as a table, a chart and a short explanation.
 
-**Live demo:** https://text2sql-agent.streamlit.app/
+**Live demo:** https://text2sql-agent.streamlit.app/  
 **Code:** https://github.com/shivrajamale/text2sql-agent
 
 > Minor Project (23CSA391A), Amrita Vishwa Vidyapeetham (AHEAD Online)  
@@ -19,7 +19,7 @@ _Add 2-3 screenshots here (for example `docs/screenshot1.png`) and link them wit
 - Shows the generated SQL, a results table, an automatic bar chart and a plain-English explanation
 - Use the built-in sample shop database or **upload your own CSV files**
 - 4 prompt strategies to compare: question only, schema, schema + sample rows, schema + sample rows + examples
-- Evaluation script with a 32-question test set (easy / medium / hard)
+- Evaluation script with a 44-question test set (easy / medium / hard)
 
 ## Architecture
 ```mermaid
@@ -35,15 +35,19 @@ flowchart LR
 ```
 
 ## Results
-Execution accuracy on the 32-question test set (sample shop database). _Fill in after running `python eval.py`._
+Execution accuracy on the 44-question test set (10 easy, 12 medium, 22 hard) on the sample shop database.
+Each setting was run once with a small local model through Ollama.
 
 | Setting | Accuracy | Easy | Medium | Hard |
 |---|---|---|---|---|
-| Question only (no schema) | | | | |
-| Schema | | | | |
-| Schema + sample rows | | | | |
-| Schema + sample rows + examples | | | | |
-| Full system + self-correction | | | | |
+| Question only (no schema) | 22.7% (10/44) | 1/10 | 9/12 | 0/22 |
+| Schema | 84.1% (37/44) | 10/10 | 12/12 | 15/22 |
+| Schema + sample rows | 86.4% (38/44) | 10/10 | 12/12 | 16/22 |
+| Schema + sample rows + examples | 86.4% (38/44) | 10/10 | 12/12 | 16/22 |
+| Full system + self-correction | 86.4% (38/44) | 10/10 | 12/12 | 16/22 |
+
+**Main finding:** giving the model the database schema raised accuracy from 22.7% to 84.1%. Sample rows, example hints and
+self-correction made little or no difference on this test set (one question is about 2.3 percentage points).
 
 ## Setup
 ```bash
@@ -70,8 +74,10 @@ Small local models are slower and less accurate than Claude; comparing both is a
 
 ## Run the evaluation
 ```bash
-python eval.py
+python eval.py quick   # fast: 12 questions x 2 settings
+python eval.py         # full: all questions x 5 settings (slow with a local model)
 ```
+Results of every question are saved in `eval_details.csv`.
 
 ## Project structure
 | File | Purpose |
