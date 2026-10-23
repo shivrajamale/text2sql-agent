@@ -13,6 +13,7 @@ CONFIGS = [  # (strategy, max_retries)
     ("schema_samples", 0),
     ("schema_samples_fewshot", 0),
     ("schema_samples_fewshot", 2),  # full system: with self-correction
+    ("schema_samples_fewshot", 2, True),  # + result verification (LLM checks the result)
 ]
 
 
@@ -42,13 +43,15 @@ if __name__ == "__main__":
     conn = sqlite3.connect(agent.seed_sample_db("sample.db"))
     details, summary = [], []
     start = time.time()
-    for strategy, retries in configs:
+    for cfg in configs:
+        strategy, retries = cfg[0], cfg[1]
+        verify = len(cfg) > 2 and cfg[2]
         correct, by_level = 0, {}
-        name = f"{strategy} | retries={retries}"
+        name = f"{strategy} | retries={retries}" + (" | verify" if verify else "")
         for i, (q, gold, level) in enumerate(tests, 1):
             sql, ok = "", False
             try:
-                res = agent.answer_question(conn, q, max_retries=retries, strategy=strategy)
+                res = agent.answer_question(conn, q, max_retries=retries, strategy=strategy, verify=verify)
                 sql = res["sql"] or ""
                 ok = res["df"] is not None and same_result(res["df"], agent.run_query(conn, gold))
             except Exception as e:

@@ -61,6 +61,7 @@ with st.sidebar:
     strategy = st.selectbox("Prompt strategy", list(agent.STRATEGIES), index=len(agent.STRATEGIES) - 1,
                             format_func=lambda k: agent.STRATEGIES[k])
     self_correct = st.checkbox("Self-correction (retry on errors)", value=True)
+    verify = st.checkbox("Verify result (extra LLM check, slower)", value=False)
 
 with st.expander("Preview tables"):
     for (tname,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
@@ -78,14 +79,14 @@ if question and not agent.llm_ready():
 
 if question and agent.llm_ready():
     cache = st.session_state.setdefault("cache", {})
-    key = (question, strategy, self_correct, schema, agent.PROVIDER)
+    key = (question, strategy, self_correct, verify, schema, agent.PROVIDER)
     if key not in cache:  # call the LLM only for new questions, not on every page refresh
         if len(cache) >= MAX_QUESTIONS:
             st.error(f"Question limit ({MAX_QUESTIONS}) reached for this session. Refresh the page to start again.")
             st.stop()
         try:
             with st.spinner("Thinking... (a local model can take 10-60 seconds)"):
-                result = agent.answer_question(conn, question, max_retries=2 if self_correct else 0, strategy=strategy)
+                result = agent.answer_question(conn, question, max_retries=2 if self_correct else 0, strategy=strategy, verify=verify)
                 if result["df"] is not None and len(result["df"]):
                     result["explanation"] = agent.explain(question, result["sql"], result["df"])
         except Exception as e:

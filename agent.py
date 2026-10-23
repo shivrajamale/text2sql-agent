@@ -245,11 +245,23 @@ def run_query(conn, sql):
     return pd.read_sql_query(sql, conn)
 
 
-def answer_question(conn, question, max_retries=2, strategy="schema_samples_fewshot"):
+def verify_result(question, sql, df):
+    """Ask the LLM whether the result really answers the question. Returns (ok, reason)."""
+    preview = df.head(10).to_string(index=False) if len(df) else "(no rows)"
+    prompt = (f"Question: {question}\nSQL used: {sql}\nResult ({len(df)} rows, first rows shown):\n{preview}\n\n"
+              "Does this result correctly answer the question? Check that the right columns, filters, joins and "
+              "grouping were used. Reply with exactly OK if it is correct. Otherwise reply WRONG: followed by "
+              "one short sentence explaining what is wrong.")
+    text = llm(prompt, "You are a careful SQL reviewer.", 120).strip()
+    return text.upper().startswith("OK"), text
+
+
+def answer_question(conn, question, max_retries=2, strategy="schema_samples_fewshot", verify=False):
     """Generate SQL -> validate -> run -> on error, feed error back and retry.
-    max_retries=0 turns self-correction off. strategy chooses how much info the prompt contains."""
+    max_retries=0 turns self-correction off. strategy chooses how much info the prompt contains.
+    verify=True also checks, after a query runs, that the result answers the question (uses a retry if it does not)."""
     context = build_context(conn, strategy)
-    sql, error, attempts = None, None, 0
+    sql, error, attempts, fallback = None, None, 0, None
     for _ in range(max_retries + 1):
         attempts += 1
         sql = generate_sql(question, context, prev_sql=sql, error=error)
@@ -259,7 +271,15 @@ def answer_question(conn, question, max_retries=2, strategy="schema_samples_fews
             continue
         try:
             df = run_query(conn, sql)
-            return {"sql": sql, "df": df, "error": None, "attempts": attempts}
         except Exception as e:  # SQL error -> retry with the error message
             error = str(e)
-    return {"sql": sql, "df": None, "error": error, "attempts": attempts}
+            continue
+        result = {"sql": sql, "df": df, "error": None, "attempts": attempts}
+        if verify and attempts <= max_retries:  # only check if a retry is still available
+            good, why = verify_result(question, sql, df)
+            if not good:
+                fallback = fallback or result  # keep the first working result in case later attempts fail
+                error = f"The query ran but the result does not answer the question. {why}"
+                continue
+        return result
+    return fallback or {"sql": sql, "df": None, "error": error, "attempts": attempts}
