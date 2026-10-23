@@ -78,7 +78,17 @@ use HAVING COUNT(DISTINCT ...) for "both A and B", and compare with MAX/MIN inst
 same 44 questions would be optimistic. For a fair result, v2 is compared with the previous prompt on **12 new questions**
 (`test_set_heldout.py`) that were not used to design the rules.
 
-_Results: run `python eval.py heldout` (and `python eval.py v2`) and add the numbers here._
+**Result on the 12 held-out questions** (same LLM for both prompts, up to 2 retries, each run once):
+
+| Prompt | Accuracy | Easy (2) | Medium (2) | Hard (8) |
+|---|---|---|---|---|
+| Previous prompt | 66.7% (8/12) | 2/2 | 2/2 | 4/8 |
+| v2 prompt | 66.7% (8/12) | 2/2 | 2/2 | 4/8 |
+
+The v2 rules did **not** improve accuracy on these new questions: both prompts answered 8 of 12 correctly. With only 12
+questions one question is worth about 8 percentage points, so this shows there is no evidence that the extra rules help
+(not that they cannot help). A possible reason is that a small model follows a long list of rules poorly; a larger model
+was not tried because of limited RAM. v2 was not run on the 44-question set.
 
 ## Setup
 ```bash
