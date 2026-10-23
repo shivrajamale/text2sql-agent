@@ -1,7 +1,7 @@
 """Execution-accuracy evaluation of the agent on the SAMPLE shop database.
 Compares prompt strategies and self-correction on/off.
 Questions live in test_set.py (add your own there, aim for 40-50 in total).
-Run:  python eval.py quick   (fast: 12 questions x 2 settings)\n      python eval.py         (full: 32 questions x 5 settings; slow with a local model)\nUses the LLM chosen in agent.py (Ollama if no ANTHROPIC_API_KEY is set)."""
+Run:  python eval.py verify  (only the "verify" setting, all questions; keeps old results)\n      python eval.py quick   (fast: 12 questions x 2 settings)\n      python eval.py         (full: 32 questions x 5 settings; slow with a local model)\nUses the LLM chosen in agent.py (Ollama if no ANTHROPIC_API_KEY is set)."""
 import sqlite3
 import agent
 
@@ -30,7 +30,9 @@ def same_result(gen, gold):
 if __name__ == "__main__":
     import sys, time, csv
     quick = "quick" in sys.argv  # python eval.py quick  -> small, fast run
-    configs = [CONFIGS[0], CONFIGS[3]] if quick else CONFIGS
+    only_verify = "verify" in sys.argv  # python eval.py verify -> only the new "verify" setting (44 questions)
+    configs = CONFIGS[-1:] if only_verify else ([CONFIGS[0], CONFIGS[3]] if quick else CONFIGS)
+    out_file = "eval_details_verify.csv" if only_verify else "eval_details.csv"  # so the old results are not overwritten
     tests = TESTS
     if quick:  # first 4 questions of each difficulty level
         tests, seen = [], {}
@@ -61,11 +63,11 @@ if __name__ == "__main__":
             by_level[level] = (n + 1, c + ok)
             details.append([name, level, q, "PASS" if ok else "FAIL", sql.replace("\n", " ")])
             print(f"[{name}] {i}/{len(tests)} {'PASS' if ok else 'FAIL'} | {q}", flush=True)
-            with open("eval_details.csv", "w", newline="", encoding="utf-8") as f:  # saved after every question
+            with open(out_file, "w", newline="", encoding="utf-8") as f:  # saved after every question
                 w = csv.writer(f); w.writerow(["setting", "level", "question", "result", "generated_sql"]); w.writerows(details)
         levels = ", ".join(f"{l}: {c}/{n}" for l, (n, c) in by_level.items())
         summary.append(f"{name:45s} {100 * correct / len(tests):5.1f}%   ({levels})")
 
     print("\n===== SUMMARY (copy into your report) =====")
     print("\n".join(summary))
-    print(f"\nTime taken: {(time.time() - start) / 60:.1f} min. Every question's result is saved in eval_details.csv")
+    print(f"\nTime taken: {(time.time() - start) / 60:.1f} min. Every question's result is saved in {out_file}")
