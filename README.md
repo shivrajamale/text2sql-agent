@@ -18,7 +18,9 @@ _Add 2-3 screenshots here (for example `docs/screenshot1.png`) and link them wit
 - **Self-correction:** if a query fails, the error is sent back to the LLM, which retries (up to 2 times)
 - **Optional result verification:** after a query runs, the LLM checks whether the result really answers the question and retries if not (checkbox in the sidebar, off by default)
 - Shows the generated SQL, a results table, an automatic bar chart and a plain-English explanation
-- Use the built-in sample shop database or **upload your own CSV files**
+- Use the built-in sample shop database, **upload your own CSV files**, or **upload a SQLite database file** (.db / .sqlite)
+- **Protection in layers:** the SQL check allows only SELECT, the database itself is set to read-only (`PRAGMA query_only`), every query has a 10-second time limit, and results are cut to 1,000 rows
+- Download any result as a CSV file
 - 5 prompt strategies to compare: question only, schema, schema + sample rows, + examples, and v2 (+ extra rules)
 - Evaluation script with a 44-question test set (easy / medium / hard) and 12 extra held-out questions for fair comparisons
 
@@ -142,11 +144,20 @@ and marks the summary NOT VALID; those numbers must not be used.
 4. In the deployed app choose **Gemini API** in the sidebar (Ollama works only on your own computer).
 
 ## Limitations
-- Works on SQLite only; very large or very complex schemas may reduce accuracy.
-- The LLM can still write wrong SQL; always check the generated query.
-- Uploaded CSV data lives only in memory for the current session.
-- The test set is small (44 questions, one sample database): one question is about 2.3 percentage points, so small differences are not reliable.
-- The v2 rules were written after seeing errors on the 44-question set; only the held-out result is a fair measure of the improvement.
+**Data**
+- Works with SQLite only (database files or CSV imports). MySQL and PostgreSQL are not supported yet.
+- Very large or complex schemas may reduce accuracy.
+- Uploaded data is kept only for the current session and is not saved.
+
+**Model**
+- The LLM can write a query that runs without error but answers the wrong question, so always check the shown SQL.
+  Error-based self-correction cannot catch this; the optional result verification only partly helps.
+- Small local models are less accurate than large hosted ones.
+
+**Evaluation**
+- The test set is small (44 questions on one sample database, plus 12 held-out questions). One question is worth 2.3
+  points (8 points on the held-out set), so small differences are not reliable.
+- The v2 rules were written after seeing errors on the 44-question set; only the held-out result is a fair measure.
 
 ## Future work
-- Support more databases (MySQL / PostgreSQL), multilingual questions (Hindi), conversation memory for follow-up questions, and more chart types.
+- Support MySQL / PostgreSQL databases, multilingual questions (Hindi), conversation memory for follow-up questions, and more chart types.

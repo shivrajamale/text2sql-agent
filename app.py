@@ -11,9 +11,28 @@ st.title("📊 Natural-Language Data Analysis Agent")
 
 def get_connection():
     """Sample shop database, or an in-memory database built from the user's uploaded CSV files."""
-    source = st.sidebar.radio("Data source", ["Sample shop database", "Upload my own CSV"])
+    source = st.sidebar.radio("Data source", ["Sample shop database", "Upload my own CSV", "Upload a SQLite database file"])
     if source == "Sample shop database":
         return sqlite3.connect(agent.seed_sample_db("sample.db"), check_same_thread=False)
+
+    if source == "Upload a SQLite database file":
+        f = st.sidebar.file_uploader("Upload a .db / .sqlite file", type=["db", "sqlite", "sqlite3"])
+        if not f:
+            st.info("Upload a SQLite file from the sidebar to start. (Or switch to the sample database.)")
+            return None
+        if st.session_state.get("db_key") != (f.name, f.size):  # open it again only when the file changes
+            import tempfile
+            path = os.path.join(tempfile.gettempdir(), f"upload_{abs(hash((f.name, f.size)))}.db")
+            with open(path, "wb") as out:
+                out.write(f.getvalue())
+            try:  # opened read-only; also checks that it really is a SQLite file
+                db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, check_same_thread=False)
+                db.execute("SELECT name FROM sqlite_master LIMIT 1").fetchall()
+            except Exception as e:
+                st.sidebar.error(f"This is not a valid SQLite database file: {e}")
+                return None
+            st.session_state["db_key"], st.session_state["db_conn"] = (f.name, f.size), db
+        return st.session_state["db_conn"]
 
     files = st.sidebar.file_uploader("Upload one or more CSV files", type="csv", accept_multiple_files=True)
     if not files:
@@ -102,6 +121,9 @@ if question and agent.llm_ready():
         df = result["df"]
         st.caption(f"Query succeeded in {result['attempts']} attempt(s).")
         st.dataframe(df)
+        if df.attrs.get("truncated"):
+            st.caption(f"Showing the first {agent.MAX_ROWS} rows only.")
+        st.download_button("Download result as CSV", df.to_csv(index=False).encode("utf-8"), "result.csv", "text/csv")
         if df.shape[1] == 2 and pd.api.types.is_numeric_dtype(df.iloc[:, 1]):
             st.bar_chart(df.set_index(df.columns[0]))
         if result.get("explanation"):

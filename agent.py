@@ -271,8 +271,24 @@ def explain(question, sql, df):
 
 
 # ---------------- Agent loop ----------------
-def run_query(conn, sql):
-    return pd.read_sql_query(sql, conn)
+MAX_ROWS = 1000          # a result is cut to this many rows
+QUERY_TIMEOUT = 10       # seconds before a running query is stopped
+
+
+def run_query(conn, sql, timeout=QUERY_TIMEOUT, max_rows=MAX_ROWS):
+    """Run a query read-only, with a time limit and a row limit.
+    PRAGMA query_only makes the DATABASE itself refuse any write, even if the SQL check missed something."""
+    conn.execute("PRAGMA query_only = ON")
+    deadline = time.time() + timeout
+    conn.set_progress_handler(lambda: 1 if time.time() > deadline else 0, 100000)
+    try:
+        df = pd.read_sql_query(sql, conn)
+    finally:
+        conn.set_progress_handler(None, 0)
+    if len(df) > max_rows:
+        df = df.head(max_rows)
+        df.attrs["truncated"] = True
+    return df
 
 
 def verify_result(question, sql, df):
