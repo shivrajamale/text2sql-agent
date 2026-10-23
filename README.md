@@ -19,8 +19,8 @@ _Add 2-3 screenshots here (for example `docs/screenshot1.png`) and link them wit
 - **Optional result verification:** after a query runs, the LLM checks whether the result really answers the question and retries if not (checkbox in the sidebar, off by default)
 - Shows the generated SQL, a results table, an automatic bar chart and a plain-English explanation
 - Use the built-in sample shop database or **upload your own CSV files**
-- 4 prompt strategies to compare: question only, schema, schema + sample rows, schema + sample rows + examples
-- Evaluation script with a 44-question test set (easy / medium / hard)
+- 5 prompt strategies to compare: question only, schema, schema + sample rows, + examples, and v2 (+ extra rules)
+- Evaluation script with a 44-question test set (easy / medium / hard) and 12 extra held-out questions for fair comparisons
 
 ## Architecture
 ```mermaid
@@ -68,19 +68,31 @@ All 9 wrong answers ran without any database error:
 Because these queries did not raise errors, error-based self-correction cannot catch them; this is why the optional
 result-verification step was added.
 
+## Improving the prompt (v2) and testing it fairly
+The wrong answers above were mostly about the *type* of query (too many GROUP BY columns, missing DISTINCT, no subquery).
+A new prompt strategy, **v2**, adds general rules for these cases: return only the requested columns, group only by what is
+asked, filter named values with WHERE, use DISTINCT after joins, use a subquery for averages or maximums of group totals,
+use HAVING COUNT(DISTINCT ...) for "both A and B", and compare with MAX/MIN instead of LIMIT 1 for "top item in each group".
+
+**Important:** these rules were written after studying the mistakes on the 44-question test set, so a higher score on those
+same 44 questions would be optimistic. For a fair result, v2 is compared with the previous prompt on **12 new questions**
+(`test_set_heldout.py`) that were not used to design the rules.
+
+_Results: run `python eval.py heldout` (and `python eval.py v2`) and add the numbers here._
+
 ## Setup
 ```bash
 python -m venv venv
 venv\Scripts\activate            # Windows  (Mac/Linux: source venv/bin/activate)
 pip install -r requirements.txt
-set ANTHROPIC_API_KEY=your_key   # Windows  (Mac/Linux: export ANTHROPIC_API_KEY=your_key)
+$env:ANTHROPIC_API_KEY="your_key"   # Windows PowerShell  (cmd: set ANTHROPIC_API_KEY=your_key | Mac/Linux: export ANTHROPIC_API_KEY=your_key)
 streamlit run app.py
 ```
 Without an API key you can still explore the data with the "Run SQL manually" box.
 
 ## Free hosted option: Gemini API (works online too)
 1. Get a free key from Google AI Studio (aistudio.google.com) and set `GEMINI_API_KEY`
-   (Windows: `set GEMINI_API_KEY=your_key`).
+   (Windows PowerShell: `$env:GEMINI_API_KEY="your_key"`; cmd: `set GEMINI_API_KEY=your_key`).
 2. Choose **Gemini API** in the sidebar. If the model name stops working, set `GEMINI_MODEL` to a current name from AI Studio.
 3. The app waits and retries when the free-tier limit is hit (`GEMINI_MIN_INTERVAL` sets the gap between calls, default 4 seconds).
 4. Free-tier limits and data-use terms change: do not send private data, and check the limits in AI Studio.
@@ -94,11 +106,13 @@ Small local models are slower and less accurate than Claude; comparing both is a
 
 ## Run the evaluation
 ```bash
+python eval.py heldout # 12 NEW questions: previous prompt vs v2 (the fair test)
+python eval.py v2      # v2 prompt on the 44 questions (optimistic, see above)
 python eval.py verify  # only the setting with result verification (all questions)
 python eval.py quick   # fast: 12 questions x 2 settings
 python eval.py         # full: all questions x 5 settings (slow with a local model)
 ```
-Results of every question are saved in `eval_details.csv` (`eval_details_verify.csv` for the verify run).
+Results of every question are saved in `eval_details.csv` (`eval_details_verify.csv`, `eval_details_v2.csv` and `eval_details_heldout.csv` for the other runs).
 If the LLM returns errors (for example the Gemini free-tier limit), the run reports them as ERROR, stops after 5 in a row,
 and marks the summary NOT VALID; those numbers must not be used.
 
@@ -107,7 +121,8 @@ and marks the summary NOT VALID; those numbers must not be used.
 |---|---|
 | `app.py` | Streamlit web interface |
 | `agent.py` | Database loading, prompts, safety check, LLM calls, agent loop with self-correction |
-| `test_set.py` | Test questions with correct SQL |
+| `test_set.py` | 44 test questions with correct SQL |
+| `test_set_heldout.py` | 12 new held-out questions for fair prompt comparisons |
 | `eval.py` | Execution-accuracy evaluation for different settings |
 
 ## Deployment (Streamlit Community Cloud)
@@ -120,6 +135,8 @@ and marks the summary NOT VALID; those numbers must not be used.
 - Works on SQLite only; very large or very complex schemas may reduce accuracy.
 - The LLM can still write wrong SQL; always check the generated query.
 - Uploaded CSV data lives only in memory for the current session.
+- The test set is small (44 questions, one sample database): one question is about 2.3 percentage points, so small differences are not reliable.
+- The v2 rules were written after seeing errors on the 44-question set; only the held-out result is a fair measure of the improvement.
 
 ## Future work
 - Support more databases (MySQL / PostgreSQL), multilingual questions (Hindi), conversation memory for follow-up questions, and more chart types.

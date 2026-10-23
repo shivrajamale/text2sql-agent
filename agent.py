@@ -2,6 +2,7 @@
 import os
 import re
 import json
+import time
 import urllib.request
 import urllib.error
 import random
@@ -112,6 +113,10 @@ def llm_ready():
     return bool(os.getenv("ANTHROPIC_API_KEY"))
 
 
+_last_gemini_call = [0.0]
+GEMINI_MIN_INTERVAL = float(os.getenv("GEMINI_MIN_INTERVAL", "4"))  # seconds between calls, to stay inside free-tier limits
+
+
 def _gemini(prompt, system, max_tokens):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     payload = {
@@ -119,25 +124,36 @@ def _gemini(prompt, system, max_tokens):
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0, "maxOutputTokens": max(max_tokens, 1024)},
     }
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={
-        "Content-Type": "application/json", "x-goog-api-key": os.getenv("GEMINI_API_KEY", "")})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = json.loads(r.read())
-        return "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            raise RuntimeError("Gemini free-tier limit reached. Wait a minute and try again.")
-        if e.code == 404:
-            raise RuntimeError(f"Gemini model '{GEMINI_MODEL}' not found. Look up a current model name in Google AI "
-                               "Studio and set it in GEMINI_MODEL.")
-        if e.code in (400, 401, 403):
-            raise RuntimeError("Gemini rejected the request. Check that GEMINI_API_KEY is correct.")
-        raise RuntimeError(f"Gemini error {e.code}")
-    except urllib.error.URLError:
-        raise RuntimeError("Could not reach the Gemini API. Check your internet connection.")
-    except (KeyError, IndexError):
-        raise RuntimeError("Gemini returned no answer (the request may have been blocked). Try rephrasing.")
+    data_bytes = json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json", "x-goog-api-key": os.getenv("GEMINI_API_KEY", "")}
+    for attempt in range(5):
+        wait = GEMINI_MIN_INTERVAL - (time.time() - _last_gemini_call[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_gemini_call[0] = time.time()
+        req = urllib.request.Request(url, data=data_bytes, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                data = json.loads(r.read())
+            return "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
+        except urllib.error.HTTPError as e:
+            if e.code == 429:  # free-tier limit: wait and try again
+                if attempt < 4:
+                    retry_after = e.headers.get("Retry-After") if e.headers else None
+                    time.sleep(float(retry_after) if retry_after and retry_after.isdigit() else 20 * (attempt + 1))
+                    continue
+                raise RuntimeError("Gemini free-tier limit reached (still blocked after waiting). Wait a few minutes "
+                                   "or try again later; the daily limit may be used up.")
+            if e.code == 404:
+                raise RuntimeError(f"Gemini model '{GEMINI_MODEL}' not found. Look up a current model name in Google AI "
+                                   "Studio and set it in GEMINI_MODEL.")
+            if e.code in (400, 401, 403):
+                raise RuntimeError("Gemini rejected the request. Check that GEMINI_API_KEY is correct.")
+            raise RuntimeError(f"Gemini error {e.code}")
+        except urllib.error.URLError:
+            raise RuntimeError("Could not reach the Gemini API. Check your internet connection.")
+        except (KeyError, IndexError):
+            raise RuntimeError("Gemini returned no answer (the request may have been blocked). Try rephrasing.")
 
 
 def _ollama(prompt, system, max_tokens):
@@ -182,6 +198,7 @@ STRATEGIES = {
     "schema": "Schema",
     "schema_samples": "Schema + sample rows",
     "schema_samples_fewshot": "Schema + sample rows + examples",
+    "schema_samples_fewshot_v2": "Schema + sample rows + examples + extra rules (v2)",
 }
 
 FEWSHOT = """Hints for writing correct SQLite queries:
@@ -201,6 +218,17 @@ Q: Show the name from table b for every row in table a (a.b_id refers to b.id).
 SQL: SELECT b.name, COUNT(*) AS n FROM a JOIN b ON a.b_id = b.id GROUP BY b.name"""
 
 
+# Extra general rules (v2), written after studying the TYPES of mistakes in the first evaluation.
+RULES_V2 = """Extra rules:
+- Return only the columns the question asks for. Do not add extra columns to SELECT.
+- Group by only what the question asks for. For "each X" group by X only. For one overall number (a total, count or average) use an aggregate without GROUP BY.
+- If the question names a specific value (a category, city or year), filter it with WHERE instead of grouping by it.
+- Joins can repeat the same row. When listing names, or counting different people or things, use DISTINCT.
+- For an average, maximum or minimum of per-group totals, first compute the totals in a subquery, then apply the second aggregate in the outer query.
+- For "both A and B" questions, group by the entity and use HAVING COUNT(DISTINCT ...) = 2; for "A but not B" use IN and NOT IN subqueries.
+- For "the top/cheapest/most X in each group", compare each row with the group's MAX or MIN using a subquery; do not use LIMIT 1."""
+
+
 def sample_rows(conn, n=3):
     """First n rows of every table, as short text (helps the LLM see real values)."""
     out = []
@@ -217,10 +245,12 @@ def build_context(conn, strategy="schema_samples_fewshot"):
     if strategy == "no_schema":
         return ""
     ctx = "Database schema:\n" + get_schema(conn)
-    if strategy in ("schema_samples", "schema_samples_fewshot"):
+    if strategy in ("schema_samples", "schema_samples_fewshot", "schema_samples_fewshot_v2"):
         ctx += "\n\n" + sample_rows(conn)
-    if strategy == "schema_samples_fewshot":
+    if strategy in ("schema_samples_fewshot", "schema_samples_fewshot_v2"):
         ctx += "\n\n" + FEWSHOT
+    if strategy == "schema_samples_fewshot_v2":
+        ctx += "\n\n" + RULES_V2
     return ctx
 
 
